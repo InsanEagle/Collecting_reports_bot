@@ -26,11 +26,18 @@ bot.use(
 
 const keyboard = new Keyboard().text("Отправить отчет").text("Авторизоваться");
 
+bot.api.setMyCommands([
+  { command: "start", description: "Инициализация бота" },
+  { command: "getid", description: "Узнать свой телеграм ID" },
+]);
+
 bot.command("start", (ctx) => {
   ctx.reply("Это бот для сбора отчетов сотрудников с места работы", {
     reply_markup: keyboard,
   });
 });
+
+bot.command("getid", (ctx) => ctx.reply(`Ваш телеграм ID: ${ctx?.from?.id}`));
 
 bot
   .on("message:text")
@@ -45,6 +52,7 @@ bot.on("message:text").hears("Авторизоваться", (ctx) => {
   }
   if (isUserInWhiteList(ctx.from.id)) {
     authorizeUser(ctx.session);
+    ctx.reply("Вы успешно авторизованы");
   } else {
     ctx.reply(
       "Не удалось авторизироваться. Вы не находитесь в списке разрешенных пользователей. Свяжитесь с поддержкой для решения данной проблемы"
@@ -65,6 +73,7 @@ function isUserInWhiteList(userID: number): boolean {
   try {
     const jsonString = fs.readFileSync("white_list.json", "utf-8");
     const users = JSON.parse(jsonString);
+    console.log(users);
     if (users[userID]) {
       return true;
     } else {
