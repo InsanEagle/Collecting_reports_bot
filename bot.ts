@@ -101,21 +101,25 @@ async function sendReport(
   conversation: MyConversation,
   ctx: MyConversationContext
 ) {
-  await ctx.reply("Отправьте фото с вашего рабочего места");
-  const photoContext = await conversation.waitUntil(
-    (ctx) => ctx.has(":photo"),
+  await ctx.reply("Отправьте фото или видео с вашего рабочего места");
+  const mediaContext = await conversation.waitUntil(
+    (ctx) => ctx.has(":media"),
     {
       otherwise(ctx) {
-        ctx.reply("Вы не отправили фото. Отправьте сначала фото");
+        ctx.reply(
+          "Вы не отправили фото или видео. Отправьте сначала фото или видео"
+        );
       },
     }
   );
-  const photoInfo = photoContext.message?.photo?.slice(-1)[0];
-  if (!photoInfo) {
-    await ctx.reply("Не удалось получить фото. Попробуйте еще раз.");
+  const videoInfo = mediaContext.message?.video;
+  const photoInfo = mediaContext.message?.photo?.slice(-1)[0];
+  const mediaType = photoInfo || videoInfo;
+  if (!mediaType) {
+    await ctx.reply("Не удалось получить фото или видео. Попробуйте еще раз.");
     return;
   }
-  const hydratedFile = await ctx.api.getFile(photoInfo.file_id);
+  const hydratedFile = await ctx.api.getFile(mediaType.file_id);
 
   await ctx.reply("Теперь пришлите текстовое описание");
   const { message } = await conversation.waitUntil(
