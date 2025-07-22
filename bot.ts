@@ -224,10 +224,12 @@ async function saveReport(
 
   const now = new Date();
   const currentDate = now.toLocaleDateString("ru-RU");
+  const currentTime = now.toLocaleTimeString("ru-RU");
+  const formattedTimeString = currentTime.replace(/:/g, "_");
 
   const userFolderPath = path.join(
     rootFolderPath,
-    `${currentDate}_${String(userID)}`
+    `${currentDate}_${formattedTimeString}_${String(userID)}`
   );
   try {
     if (!fs.existsSync(userFolderPath)) {
