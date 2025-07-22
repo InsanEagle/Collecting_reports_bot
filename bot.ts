@@ -28,7 +28,13 @@ type MyConversation = Conversation<MyContext, MyConversationContext>;
 
 const bot = new Bot<MyContext>(key);
 
-bot.use(conversations());
+bot.use(
+  conversations({
+    storage: new FileAdapter({
+      dirName: "conversations",
+    }),
+  })
+);
 bot.api.config.use(hydrateFiles(bot.token));
 
 bot.use(
@@ -66,12 +72,15 @@ bot.command("start", (ctx) => {
 
 bot.command("getid", (ctx) => ctx.reply(`Ваш телеграм ID: ${ctx?.from?.id}`));
 
-bot
-  .on("message:text")
-  .hears(
-    "Отправить отчет",
-    async (ctx) => await ctx.conversation.enter("sendReport")
-  );
+bot.on("message:text").hears("Отправить отчет", async (ctx) => {
+  if (ctx.session.isAuthorized) {
+    await ctx.conversation.enter("sendReport");
+  } else {
+    ctx.reply(
+      "Чтобы отправлять отчеты нужно быть авторизованным. Нажмите на кнопку или введите 'Авторизоваться'"
+    );
+  }
+});
 
 bot.on("message:text").hears("Авторизоваться", (ctx) => {
   if (ctx.session.isAuthorized) {
@@ -127,11 +136,15 @@ async function sendReport(
   }
 }
 
-bot.on("message", (ctx) =>
-  ctx.reply(
-    "Этот бот умеет только принимать отчеты. Нажмите на кнопку или введите 'Отправить отчет'"
-  )
-);
+bot.on("message", async (ctx) => {
+  const activeConversations = await ctx.conversation.active();
+
+  if (Object.keys(activeConversations).length === 0) {
+    ctx.reply(
+      "Этот бот умеет только принимать отчеты. Нажмите на кнопку или введите 'Отправить отчет'"
+    );
+  }
+});
 
 bot.catch((err) => console.error(err));
 bot.start();
