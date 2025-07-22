@@ -8,7 +8,7 @@ if (!key) {
 
 const bot = new Bot(key);
 
-const keyboard = new Keyboard().text("Отправить отчет");
+const keyboard = new Keyboard().text("Отправить отчет").text("Авторизоваться");
 
 bot.command("start", (ctx) => {
   ctx.reply("Это бот для сбора отчетов сотрудников с места работы", {
@@ -20,6 +20,12 @@ bot
   .on("message:text")
   .hears("Отправить отчет", (ctx) =>
     ctx.reply("Вы нажали на кнопку или ввели 'Отправить отчет'")
+  );
+
+bot
+  .on("message:text")
+  .hears("Авторизоваться", (ctx) =>
+    ctx.reply("Вы нажали на кнопку или ввели 'Авторизоваться'")
   );
 
 bot.on("message", (ctx) =>
