@@ -212,6 +212,7 @@ async function saveReport(
     console.log(`Photo '${photoPath}' saved successfully.`);
   } catch (err) {
     console.error(`Error saving photo: ${err}`);
+    return false;
   }
   const name = "description";
   let descriptionPath = path.join(userFolderPath, `${name}.txt`);
@@ -223,6 +224,7 @@ async function saveReport(
     }
   } catch (err) {
     console.error(`Error creating txt path photo: ${err}`);
+    return false;
   }
 
   try {
@@ -230,6 +232,7 @@ async function saveReport(
     console.log("File written successfully (synchronously).");
   } catch (err) {
     console.error("Error writing file:", err);
+    return false;
   }
 
   return true;
