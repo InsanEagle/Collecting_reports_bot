@@ -1,7 +1,17 @@
 import { Bot, Keyboard, Context, session, SessionFlavor } from "grammy";
 import { FileAdapter } from "@grammyjs/storage-file";
+import { FileFlavor, hydrateFiles } from "@grammyjs/files";
+import {
+  type Conversation,
+  type ConversationFlavor,
+  conversations,
+  createConversation,
+} from "@grammyjs/conversations";
+import { type File } from "@grammyjs/types";
+import { type FileX } from "@grammyjs/files/out/files";
 import "dotenv/config";
 import * as fs from "fs";
+import * as path from "path";
 
 const key = process.env.TELEGRAM_BOT_API_KEY;
 if (!key) {
@@ -11,9 +21,15 @@ if (!key) {
 interface SessionData {
   isAuthorized: boolean;
 }
-type MyContext = Context & SessionFlavor<SessionData>;
+type MyContext = ConversationFlavor<Context> & SessionFlavor<SessionData>;
+type MyConversationContext = FileFlavor<Context>;
+
+type MyConversation = Conversation<MyContext, MyConversationContext>;
 
 const bot = new Bot<MyContext>(key);
+
+bot.use(conversations());
+bot.api.config.use(hydrateFiles(bot.token));
 
 bot.use(
   session({
@@ -31,6 +47,17 @@ bot.api.setMyCommands([
   { command: "getid", description: "Узнать свой телеграм ID" },
 ]);
 
+bot.use(
+  createConversation(sendReport, {
+    plugins: [
+      async (ctx, next) => {
+        ctx.api.config.use(hydrateFiles(bot.token));
+        await next();
+      },
+    ],
+  })
+);
+
 bot.command("start", (ctx) => {
   ctx.reply("Это бот для сбора отчетов сотрудников с места работы", {
     reply_markup: keyboard,
@@ -41,8 +68,9 @@ bot.command("getid", (ctx) => ctx.reply(`Ваш телеграм ID: ${ctx?.from
 
 bot
   .on("message:text")
-  .hears("Отправить отчет", (ctx) =>
-    ctx.reply("Вы нажали на кнопку или ввели 'Отправить отчет'")
+  .hears(
+    "Отправить отчет",
+    async (ctx) => await ctx.conversation.enter("sendReport")
   );
 
 bot.on("message:text").hears("Авторизоваться", (ctx) => {
@@ -60,6 +88,45 @@ bot.on("message:text").hears("Авторизоваться", (ctx) => {
   }
 });
 
+async function sendReport(
+  conversation: MyConversation,
+  ctx: MyConversationContext
+) {
+  await ctx.reply("Отправьте фото с вашего рабочего места");
+  const photoContext = await conversation.waitUntil(
+    (ctx) => ctx.has(":photo"),
+    {
+      otherwise(ctx) {
+        ctx.reply("Вы не отправили фото. Отправьте сначала фото");
+      },
+    }
+  );
+  const photoInfo = photoContext.message?.photo?.slice(-1)[0];
+  if (!photoInfo) {
+    await ctx.reply("Не удалось получить фото. Попробуйте еще раз.");
+    return;
+  }
+  const hydratedFile = await ctx.api.getFile(photoInfo.file_id);
+
+  await ctx.reply("Теперь пришлите текстовое описание");
+  const { message } = await conversation.waitUntil(
+    Context.has.filterQuery(":text"),
+    {
+      otherwise(ctx) {
+        ctx.reply("Вы не отправили текстовое описание. Повторите ввод");
+      },
+    }
+  );
+  const isSaved = await conversation.external(
+    async () => await saveReport(hydratedFile, message?.text, ctx?.from?.id)
+  );
+  if (isSaved) {
+    ctx.reply("Файлы успешно сохранены");
+  } else {
+    ctx.reply("Произошла ошибка. Файлы не сохранены. Попробуйте еще раз");
+  }
+}
+
 bot.on("message", (ctx) =>
   ctx.reply(
     "Этот бот умеет только принимать отчеты. Нажмите на кнопку или введите 'Отправить отчет'"
@@ -73,7 +140,6 @@ function isUserInWhiteList(userID: number): boolean {
   try {
     const jsonString = fs.readFileSync("white_list.json", "utf-8");
     const users = JSON.parse(jsonString);
-    console.log(users);
     if (users[userID]) {
       return true;
     } else {
@@ -86,4 +152,72 @@ function isUserInWhiteList(userID: number): boolean {
 
 function authorizeUser(session: SessionData): void {
   session.isAuthorized = true;
+}
+
+async function saveReport(
+  photo: File & FileX,
+  message: string | undefined,
+  userID: number | undefined
+): Promise<boolean> {
+  if (!userID || !message) {
+    return false;
+  }
+  const rootFolderPath = path.join(__dirname, "reports");
+  try {
+    if (!fs.existsSync(rootFolderPath)) {
+      fs.mkdirSync(rootFolderPath);
+      console.log(`Folder '${rootFolderPath}' created successfully.`);
+    } else {
+      console.log(`Folder '${rootFolderPath}' already exists.`);
+    }
+  } catch (err) {
+    console.error(`Error creating folder: ${err}`);
+  }
+
+  const now = new Date();
+  const currentDate = now.toLocaleDateString("ru-RU");
+
+  const userFolderPath = path.join(
+    rootFolderPath,
+    `${currentDate}_${String(userID)}`
+  );
+  try {
+    if (!fs.existsSync(userFolderPath)) {
+      fs.mkdirSync(userFolderPath);
+      console.log(`Folder '${userFolderPath}' created successfully.`);
+    } else {
+      console.log(`Folder '${userFolderPath}' already exists.`);
+    }
+  } catch (err) {
+    console.error(`Error creating folder: ${err}`);
+  }
+
+  try {
+    const fileName = path.basename(photo.file_path || "photo.jpg");
+    const destinationPath = path.join(userFolderPath, fileName);
+    const photoPath = await photo.download(destinationPath);
+    console.log(`Photo '${photoPath}' saved successfully.`);
+  } catch (err) {
+    console.error(`Error saving photo: ${err}`);
+  }
+  const name = "description";
+  let descriptionPath = path.join(userFolderPath, `${name}.txt`);
+  try {
+    let count = 1;
+    while (fs.existsSync(descriptionPath)) {
+      descriptionPath = path.join(userFolderPath, `${name}_${count}.txt`);
+      count += 1;
+    }
+  } catch (err) {
+    console.error(`Error creating txt path photo: ${err}`);
+  }
+
+  try {
+    fs.writeFileSync(descriptionPath, message);
+    console.log("File written successfully (synchronously).");
+  } catch (err) {
+    console.error("Error writing file:", err);
+  }
+
+  return true;
 }
