@@ -120,10 +120,15 @@ async function sendReport(
   );
 
   let mediaContext;
+  let firstCycleMedia = true;
   while (true) {
-    await ctx.reply("Отправьте фото или видео с вашего рабочего места", {
-      reply_markup: cancelConversationInlineKeyboard,
-    });
+    if (firstCycleMedia) {
+      firstCycleMedia = false;
+      await ctx.reply("Отправьте фото или видео с вашего рабочего места", {
+        reply_markup: cancelConversationInlineKeyboard,
+      });
+    }
+
     const receivedCtx = await conversation.waitFor("message");
 
     if (receivedCtx.has(":media")) {
@@ -147,10 +152,15 @@ async function sendReport(
   const hydratedFile = await ctx.api.getFile(mediaType.file_id);
 
   let message;
+  let firstCycleDescription = true;
   while (true) {
-    await ctx.reply("Теперь пришлите текстовое описание", {
-      reply_markup: cancelConversationInlineKeyboard,
-    });
+    if (firstCycleDescription) {
+      firstCycleDescription = false;
+      await ctx.reply("Теперь пришлите текстовое описание", {
+        reply_markup: cancelConversationInlineKeyboard,
+      });
+    }
+
     const receivedCtx = await conversation.waitFor("message");
 
     if (receivedCtx.has(":text")) {
