@@ -1,6 +1,7 @@
 import { Bot, Keyboard, Context, session, SessionFlavor } from "grammy";
 import { FileAdapter } from "@grammyjs/storage-file";
 import "dotenv/config";
+import * as fs from "fs";
 
 const key = process.env.TELEGRAM_BOT_API_KEY;
 if (!key) {
@@ -37,11 +38,19 @@ bot
     ctx.reply("Вы нажали на кнопку или ввели 'Отправить отчет'")
   );
 
-bot
-  .on("message:text")
-  .hears("Авторизоваться", (ctx) =>
-    ctx.reply("Вы нажали на кнопку или ввели 'Авторизоваться'")
-  );
+bot.on("message:text").hears("Авторизоваться", (ctx) => {
+  if (ctx.session.isAuthorized) {
+    ctx.reply("Вы уже авторизованы");
+    return;
+  }
+  if (isUserInWhiteList(ctx.from.id)) {
+    authorizeUser(ctx.session);
+  } else {
+    ctx.reply(
+      "Не удалось авторизироваться. Вы не находитесь в списке разрешенных пользователей. Свяжитесь с поддержкой для решения данной проблемы"
+    );
+  }
+});
 
 bot.on("message", (ctx) =>
   ctx.reply(
@@ -51,3 +60,21 @@ bot.on("message", (ctx) =>
 
 bot.catch((err) => console.error(err));
 bot.start();
+
+function isUserInWhiteList(userID: number): boolean {
+  try {
+    const jsonString = fs.readFileSync("white_list.json", "utf-8");
+    const users = JSON.parse(jsonString);
+    if (users[userID]) {
+      return true;
+    } else {
+      return false;
+    }
+  } catch {
+    throw new Error("Error checking for user in white_list.json");
+  }
+}
+
+function authorizeUser(session: SessionData): void {
+  session.isAuthorized = true;
+}
