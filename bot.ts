@@ -250,6 +250,7 @@ async function saveReport(
     }
   } catch (err) {
     console.error(`Error creating folder: ${err}`);
+    return false;
   }
 
   try {
