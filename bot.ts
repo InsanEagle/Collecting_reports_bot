@@ -1,4 +1,11 @@
-import { Bot, Keyboard, Context, session, SessionFlavor } from "grammy";
+import {
+  Bot,
+  Keyboard,
+  InlineKeyboard,
+  Context,
+  session,
+  SessionFlavor,
+} from "grammy";
 import { FileAdapter } from "@grammyjs/storage-file";
 import { FileFlavor, hydrateFiles } from "@grammyjs/files";
 import {
@@ -101,35 +108,59 @@ async function sendReport(
   conversation: MyConversation,
   ctx: MyConversationContext
 ) {
-  await ctx.reply("Отправьте фото или видео с вашего рабочего места");
-  const mediaContext = await conversation.waitUntil(
-    (ctx) => ctx.has(":media"),
-    {
-      otherwise(ctx) {
-        ctx.reply(
-          "Вы не отправили фото или видео. Отправьте сначала фото или видео"
-        );
-      },
-    }
+  conversation.waitFor("callback_query:data").then(async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText("Отправка отчета отменена.");
+    await conversation.halt();
+  });
+
+  const cancelConversationInlineKeyboard = new InlineKeyboard().text(
+    "Отменить",
+    "cancel_conversation"
   );
+
+  let mediaContext;
+  while (true) {
+    await ctx.reply("Отправьте фото или видео с вашего рабочего места", {
+      reply_markup: cancelConversationInlineKeyboard,
+    });
+    const receivedCtx = await conversation.waitFor("message");
+
+    if (receivedCtx.has(":media")) {
+      mediaContext = receivedCtx;
+      break;
+    } else {
+      await ctx.reply(
+        "Это не фото или видео. Пожалуйста, отправьте медиафайл."
+      );
+    }
+  }
+
   const videoInfo = mediaContext.message?.video;
   const photoInfo = mediaContext.message?.photo?.slice(-1)[0];
   const mediaType = photoInfo || videoInfo;
+
   if (!mediaType) {
-    await ctx.reply("Не удалось получить фото или видео. Попробуйте еще раз.");
+    await ctx.reply("Не удалось обработать медиа. Попробуйте еще раз.");
     return;
   }
   const hydratedFile = await ctx.api.getFile(mediaType.file_id);
 
-  await ctx.reply("Теперь пришлите текстовое описание");
-  const { message } = await conversation.waitUntil(
-    Context.has.filterQuery(":text"),
-    {
-      otherwise(ctx) {
-        ctx.reply("Вы не отправили текстовое описание. Повторите ввод");
-      },
+  let message;
+  while (true) {
+    await ctx.reply("Теперь пришлите текстовое описание", {
+      reply_markup: cancelConversationInlineKeyboard,
+    });
+    const receivedCtx = await conversation.waitFor("message");
+
+    if (receivedCtx.has(":text")) {
+      message = receivedCtx.message;
+      break;
+    } else {
+      await ctx.reply("Это не текстовое описание. Пожалуйста, введите текст.");
     }
-  );
+  }
+
   const isSaved = await conversation.external(
     async () => await saveReport(hydratedFile, message?.text, ctx?.from?.id)
   );
@@ -172,7 +203,7 @@ function authorizeUser(session: SessionData): void {
 }
 
 async function saveReport(
-  photo: File & FileX,
+  media: File & FileX,
   message: string | undefined,
   userID: number | undefined
 ): Promise<boolean> {
@@ -210,12 +241,16 @@ async function saveReport(
   }
 
   try {
-    const fileName = path.basename(photo.file_path || "photo.jpg");
+    if (!media.file_path) {
+      console.log("Media has no file path");
+      return false;
+    }
+    const fileName = path.basename(media.file_path);
     const destinationPath = path.join(userFolderPath, fileName);
-    const photoPath = await photo.download(destinationPath);
-    console.log(`Photo '${photoPath}' saved successfully.`);
+    const mediaPath = await media.download(destinationPath);
+    console.log(`Media '${mediaPath}' saved successfully.`);
   } catch (err) {
-    console.error(`Error saving photo: ${err}`);
+    console.error(`Error saving media: ${err}`);
     return false;
   }
   const name = "description";
