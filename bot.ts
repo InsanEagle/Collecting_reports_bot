@@ -1,4 +1,5 @@
-import { Bot, Keyboard } from "grammy";
+import { Bot, Keyboard, Context, session, SessionFlavor } from "grammy";
+import { FileAdapter } from "@grammyjs/storage-file";
 import "dotenv/config";
 
 const key = process.env.TELEGRAM_BOT_API_KEY;
@@ -6,7 +7,21 @@ if (!key) {
   throw new Error("Cannot find TELEGRAM_BOT_API_KEY");
 }
 
-const bot = new Bot(key);
+interface SessionData {
+  isAuthorized: boolean;
+}
+type MyContext = Context & SessionFlavor<SessionData>;
+
+const bot = new Bot<MyContext>(key);
+
+bot.use(
+  session({
+    initial: () => ({ isAuthorized: false }),
+    storage: new FileAdapter({
+      dirName: "sessions",
+    }),
+  })
+);
 
 const keyboard = new Keyboard().text("Отправить отчет").text("Авторизоваться");
 
@@ -34,4 +49,5 @@ bot.on("message", (ctx) =>
   )
 );
 
+bot.catch((err) => console.error(err));
 bot.start();

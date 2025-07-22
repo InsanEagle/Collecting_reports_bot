@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@grammyjs/storage-file": "^2.5.1",
     "@types/node": "^24.0.15",
     "dotenv": "^17.2.0",
     "grammy": "^1.37.0",
