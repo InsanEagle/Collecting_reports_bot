@@ -20,6 +20,8 @@ import "dotenv/config";
 import * as fs from "fs";
 import * as path from "path";
 
+import { appendValues } from "./google_api/sheets/sheets.js";
+
 const key = process.env.TELEGRAM_BOT_API_KEY;
 if (!key) {
   throw new Error("Cannot find TELEGRAM_BOT_API_KEY");
@@ -284,6 +286,15 @@ async function saveReport(
     console.log("File written successfully (synchronously).");
   } catch (err) {
     console.error("Error writing file:", err);
+    return false;
+  }
+
+  try {
+    const data = [[currentDate, userID, message, userFolderPath]];
+    await appendValues(data);
+    console.log("Data successfully added to Google Sheet");
+  } catch (err) {
+    console.error("Error adding data to Google Sheet:", err);
     return false;
   }
 

@@ -4,3 +4,5 @@ sessions
 white_list.json
 reports
 conversations
+credentials.json
+token.json
