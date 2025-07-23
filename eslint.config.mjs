@@ -8,5 +8,8 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.strict,
   tseslint.configs.stylistic,
-  eslintConfigPrettier
+  eslintConfigPrettier,
+  {
+    ignores: ["dist/", "google_api", "node_modules/"],
+  }
 );
