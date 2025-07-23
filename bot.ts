@@ -110,76 +110,118 @@ async function sendReport(
   conversation: MyConversation,
   ctx: MyConversationContext
 ) {
-  conversation.waitFor("callback_query:data").then(async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText("Отправка отчета отменена.");
-    await conversation.halt();
-  });
-
   const cancelConversationInlineKeyboard = new InlineKeyboard().text(
     "Отменить",
     "cancel_conversation"
   );
 
-  let mediaContext;
-  let firstCycleMedia = true;
-  while (true) {
-    if (firstCycleMedia) {
-      firstCycleMedia = false;
-      await ctx.reply("Отправьте фото или видео с вашего рабочего места", {
-        reply_markup: cancelConversationInlineKeyboard,
-      });
+  const doneAndCancelConversationInlineKeyboard = new InlineKeyboard()
+    .text("Завершить", "done_conversation")
+    .row()
+    .text("Отменить", "cancel_conversation");
+
+  const collectedMedia: (File & FileX)[] = [];
+  let gotMedia = false;
+
+  await ctx.reply(
+    "Шаг 1 из 2: Отправьте фото или видео с вашего рабочего места. Можно отправить несколько файлов. Когда закончите, нажмите 'Завершить'.",
+    {
+      reply_markup: doneAndCancelConversationInlineKeyboard,
     }
+  );
 
-    const receivedCtx = await conversation.waitFor("message");
+  while (true) {
+    const latestCtx = await conversation.wait();
 
-    if (receivedCtx.has(":media")) {
-      mediaContext = receivedCtx;
-      break;
+    if (latestCtx.callbackQuery) {
+      const queryData = latestCtx.callbackQuery.data;
+
+      if (queryData === "cancel_conversation") {
+        await latestCtx.answerCallbackQuery();
+        await latestCtx.editMessageText("Отправка отчета отменена.");
+        return;
+      }
+
+      if (queryData === "done_conversation") {
+        await latestCtx.answerCallbackQuery();
+        if (!gotMedia) {
+          await latestCtx.reply(
+            "Вы не отправили ни одного медиафайла. Пожалуйста, отправьте хотя бы один, прежде чем завершать.",
+            { reply_markup: doneAndCancelConversationInlineKeyboard }
+          );
+          continue;
+        } else {
+          await latestCtx.editMessageText("Медиафайлы приняты.");
+          break;
+        }
+      }
+    } else if (latestCtx.message?.photo || latestCtx.message?.video) {
+      gotMedia = true;
+      const file = await latestCtx.getFile();
+      collectedMedia.push(file);
+
+      await latestCtx.reply(
+        "Файл принят. Можете отправить еще или нажать 'Завершить'.",
+        {
+          reply_markup: doneAndCancelConversationInlineKeyboard,
+        }
+      );
     } else {
-      await ctx.reply(
-        "Это не фото или видео. Пожалуйста, отправьте медиафайл."
+      await latestCtx.reply(
+        "Это не медиафайл. Пожалуйста, отправьте фото или видео. Если хотите закончить, нажмите 'Завершить'.",
+        {
+          reply_markup: doneAndCancelConversationInlineKeyboard,
+        }
       );
     }
   }
 
-  const videoInfo = mediaContext.message?.video;
-  const photoInfo = mediaContext.message?.photo?.slice(-1)[0];
-  const mediaType = photoInfo || videoInfo;
-
-  if (!mediaType) {
-    await ctx.reply("Не удалось обработать медиа. Попробуйте еще раз.");
+  if (collectedMedia.length === 0) {
+    await ctx.reply(
+      "Не было отправлено ни одного медиафайла. Отправка отчета отменена."
+    );
     return;
   }
-  const hydratedFile = await ctx.api.getFile(mediaType.file_id);
 
-  let message;
-  let firstCycleDescription = true;
+  await ctx.reply(
+    "Шаг 2 из 2: Теперь пришлите текстовое описание к вашему отчету.",
+    {
+      reply_markup: cancelConversationInlineKeyboard,
+    }
+  );
+
+  let descriptionMessage: string | undefined;
+
   while (true) {
-    if (firstCycleDescription) {
-      firstCycleDescription = false;
-      await ctx.reply("Теперь пришлите текстовое описание", {
+    const descCtx = await conversation.wait();
+
+    if (descCtx.callbackQuery?.data === "cancel_conversation") {
+      await descCtx.answerCallbackQuery();
+      await descCtx.editMessageText("Отправка отчета отменена.");
+      return;
+    }
+
+    if (descCtx.message?.text) {
+      descriptionMessage = descCtx.message.text;
+      break;
+    } else {
+      await descCtx.reply("Пожалуйста, пришлите текстовое описание.", {
         reply_markup: cancelConversationInlineKeyboard,
       });
     }
-
-    const receivedCtx = await conversation.waitFor("message");
-
-    if (receivedCtx.has(":text")) {
-      message = receivedCtx.message;
-      break;
-    } else {
-      await ctx.reply("Это не текстовое описание. Пожалуйста, введите текст.");
-    }
   }
 
-  const isSaved = await conversation.external(
-    async () => await saveReport(hydratedFile, message?.text, ctx?.from?.id)
+  await ctx.reply("Спасибо! Сохраняю ваш отчет...");
+  const isSaved = await conversation.external(() =>
+    saveFullReport(collectedMedia, descriptionMessage, ctx?.from?.id)
   );
+
   if (isSaved) {
-    ctx.reply("Файлы успешно сохранены");
+    ctx.reply("Отчет успешно сохранен и отправлен!");
   } else {
-    ctx.reply("Произошла ошибка. Файлы не сохранены. Попробуйте еще раз");
+    ctx.reply(
+      "Произошла ошибка при сохранении. Файлы не сохранены. Попробуйте еще раз."
+    );
   }
 }
 
@@ -214,83 +256,65 @@ function authorizeUser(session: SessionData): void {
   session.isAuthorized = true;
 }
 
-async function saveReport(
-  media: File & FileX,
+async function saveFullReport(
+  mediaArray: (File & FileX)[],
   message: string | undefined,
   userID: number | undefined
 ): Promise<boolean> {
-  if (!userID || !message) {
+  if (!userID || !message || mediaArray.length === 0) {
     return false;
   }
+
   const rootFolderPath = path.join(__dirname, "reports");
   try {
     if (!fs.existsSync(rootFolderPath)) {
-      fs.mkdirSync(rootFolderPath);
-      console.log(`Folder '${rootFolderPath}' created successfully.`);
-    } else {
-      console.log(`Folder '${rootFolderPath}' already exists.`);
+      fs.mkdirSync(rootFolderPath, { recursive: true });
     }
   } catch (err) {
-    console.error(`Error creating folder: ${err}`);
+    console.error(`Error creating root folder: ${err}`);
+    return false;
   }
 
   const now = new Date();
   const currentDate = now.toLocaleDateString("ru-RU");
-  const currentTime = now.toLocaleTimeString("ru-RU");
-  const formattedTimeString = currentTime.replace(/:/g, "_");
-
-  const userFolderPath = path.join(
+  const currentTime = now.toLocaleTimeString("ru-RU").replace(/:/g, "_");
+  const reportFolderPath = path.join(
     rootFolderPath,
-    `${currentDate}_${formattedTimeString}_${String(userID)}`
+    `${currentDate}_${currentTime}_${String(userID)}`
   );
+
   try {
-    if (!fs.existsSync(userFolderPath)) {
-      fs.mkdirSync(userFolderPath);
-      console.log(`Folder '${userFolderPath}' created successfully.`);
-    } else {
-      console.log(`Folder '${userFolderPath}' already exists.`);
-    }
+    fs.mkdirSync(reportFolderPath, { recursive: true });
+    console.log(`Report folder '${reportFolderPath}' created successfully.`);
   } catch (err) {
-    console.error(`Error creating folder: ${err}`);
+    console.error(`Error creating report folder: ${err}`);
     return false;
   }
 
   try {
-    if (!media.file_path) {
-      console.log("Media has no file path");
-      return false;
-    }
-    const fileName = path.basename(media.file_path);
-    const destinationPath = path.join(userFolderPath, fileName);
-    const mediaPath = await media.download(destinationPath);
-    console.log(`Media '${mediaPath}' saved successfully.`);
-  } catch (err) {
-    console.error(`Error saving media: ${err}`);
-    return false;
-  }
-  const name = "description";
-  let descriptionPath = path.join(userFolderPath, `${name}.txt`);
-  try {
-    let count = 1;
-    while (fs.existsSync(descriptionPath)) {
-      descriptionPath = path.join(userFolderPath, `${name}_${count}.txt`);
-      count += 1;
+    for (const media of mediaArray) {
+      if (!media.file_path) continue;
+      const fileName = path.basename(media.file_path);
+      const destinationPath = path.join(reportFolderPath, fileName);
+      await media.download(destinationPath);
+      console.log(`Media '${fileName}' saved successfully.`);
     }
   } catch (err) {
-    console.error(`Error creating txt path photo: ${err}`);
+    console.error(`Error saving media files: ${err}`);
     return false;
   }
 
   try {
+    const descriptionPath = path.join(reportFolderPath, "description.txt");
     fs.writeFileSync(descriptionPath, message);
-    console.log("File written successfully (synchronously).");
+    console.log("Description file written successfully.");
   } catch (err) {
-    console.error("Error writing file:", err);
+    console.error("Error writing description file:", err);
     return false;
   }
 
   try {
-    const data = [[currentDate, userID, message, userFolderPath]];
+    const data = [[currentDate, userID, message, reportFolderPath]];
     await appendValues(data);
     console.log("Data successfully added to Google Sheet");
   } catch (err) {

@@ -91,9 +91,6 @@ export async function appendValues(values) {
       values,
     };
 
-    console.log(values);
-    console.log(spreadsheetId);
-
     const result = await service.spreadsheets.values.append({
       spreadsheetId,
       range,
